@@ -12,12 +12,12 @@ struct ContentView: View {
         TabView {
             HomeView()
                 .tabItem {
-                Label("Breathe", systemImage: "waveform.path.ecg")
+                    Label(String(localized: "Breathe"), systemImage: "waveform.path.ecg")
                 }
 
             TipsView()
                 .tabItem {
-                Label("Tips", systemImage: "lightbulb.fill")
+                    Label(String(localized: "Tips"), systemImage: "lightbulb.fill")
                 }
         }
         .accentColor(.cyan)

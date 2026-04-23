@@ -17,9 +17,9 @@ enum BreathingPhase: String {
 
     var localizedName: String {
         switch self {
-        case .ready: return String(localized: "Ready?")
+        case .ready:  return String(localized: "Ready?")
         case .inhale: return String(localized: "Inhale...")
-        case .hold: return String(localized: "Hold")
+        case .hold:   return String(localized: "Hold")
         case .exhale: return String(localized: "Exhale...")
         }
     }
@@ -27,13 +27,19 @@ enum BreathingPhase: String {
 
 @MainActor
 final class BreathingViewModel: ObservableObject {
+    // MARK: - Published Properties
+    
     @Published var selectedTechnique: BreathingTechnique? = BreathingTechnique.presets.first
     @Published var breathingPhase: BreathingPhase = .ready
     @Published var scale: CGFloat = 0.4
-    @Published var countdown: String = "Start"
+    @Published var countdown: String = String(localized: "Start")
     @Published var isAnimating = false
-
+    
+    // Session State
+    @Published var phaseElapsedTime: Double = 0.0
     private var animationTask: Task<Void, Never>?
+    
+    // MARK: - Public Methods
 
     func toggleAnimation() {
         guard selectedTechnique != nil else { return }
@@ -53,40 +59,49 @@ final class BreathingViewModel: ObservableObject {
         isAnimating = false
     }
 
+    // MARK: - Private Logic
+
     private func startBreathingCycle() {
         guard let technique = selectedTechnique else { return }
-        animationTask?.cancel()
+        
+        stopBreathingCycle()
 
         animationTask = Task {
             while isAnimating {
                 guard !Task.isCancelled else { break }
 
+                // 1. Inhale
                 await runPhase(
                     phase: .inhale,
                     duration: technique.inhaleDuration,
                     targetScale: 1.0
                 )
-                guard isAnimating && !Task.isCancelled else { break }
-
-                if technique.holdDuration > 0 {
+                
+                // 2. Hold (Optional)
+                if isAnimating && !Task.isCancelled && technique.holdDuration > 0 {
                     await runPhase(
                         phase: .hold,
                         duration: technique.holdDuration,
                         targetScale: 1.0
                     )
-                    guard isAnimating && !Task.isCancelled else { break }
                 }
 
-                await runPhase(
-                    phase: .exhale,
-                    duration: technique.exhaleDuration,
-                    targetScale: 0.4
-                )
+                // 3. Exhale
+                if isAnimating && !Task.isCancelled {
+                    await runPhase(
+                        phase: .exhale,
+                        duration: technique.exhaleDuration,
+                        targetScale: 0.4
+                    )
+                }
+                
                 guard isAnimating && !Task.isCancelled else { break }
             }
 
-            resetToInitialState()
-            isAnimating = false
+            if !Task.isCancelled {
+                resetToInitialState()
+                isAnimating = false
+            }
         }
     }
 
@@ -97,7 +112,9 @@ final class BreathingViewModel: ObservableObject {
 
     private func runPhase(phase: BreathingPhase, duration: TimeInterval, targetScale: CGFloat) async {
         breathingPhase = phase
+        phaseElapsedTime = 0.0
 
+        // Exhale animation is slightly shorter to feel more natural
         let animationDuration = (phase == .exhale) ? duration * 0.9 : duration
 
         withAnimation(.easeInOut(duration: animationDuration)) {
@@ -108,10 +125,18 @@ final class BreathingViewModel: ObservableObject {
     }
 
     private func runCountdown(for duration: TimeInterval) async {
-        for i in (1...Int(duration)).reversed() {
+        let startTime = Date()
+        
+        while phaseElapsedTime < duration {
             if Task.isCancelled { return }
-            countdown = "\(i)"
-            try? await Task.sleep(for: .seconds(1))
+            
+            let elapsed = Date().timeIntervalSince(startTime)
+            phaseElapsedTime = min(elapsed, duration)
+            
+            let remaining = Int(ceil(duration - phaseElapsedTime))
+            countdown = remaining > 0 ? "\(remaining)" : "0"
+            
+            try? await Task.sleep(for: .milliseconds(100))
         }
     }
 
@@ -119,7 +144,8 @@ final class BreathingViewModel: ObservableObject {
         withAnimation(.easeInOut(duration: 1.5)) {
             scale = 0.4
             breathingPhase = .ready
-            countdown = "Start"
+            countdown = String(localized: "Start")
+            phaseElapsedTime = 0.0
         }
     }
 }
